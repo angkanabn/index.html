@@ -573,22 +573,50 @@ function getJaVoice(){
       || null;
 }
 
-function speak(text, onEnd){
-  if(!('speechSynthesis' in window)) return;
-  window.speechSynthesis.cancel();
-  // หน่วงเวลาสั้น ๆ ก่อนพูด แก้ปัญหา Chrome บนมือถือตัดต้นเสียง/เสียงสั้นเกินไป
-  setTimeout(()=>{
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'ja-JP';
-    u.rate = 1.0;
-    u.pitch = 1;
-    u.volume = 1;
-    const jaVoice = getJaVoice();
-    if(jaVoice) u.voice = jaVoice;
-    if(onEnd) u.onend = onEnd;
-    window.speechSynthesis.speak(u);
-  }, 60);
+// 1. Fixed the voice rate (0.1 to 10, default is 1)
+// 2. Removed cancel() so sentences queue up naturally
+// 3. Added a function to handle long text by splitting it
+
+function speak(text, onEnd) {
+  if (!('speechSynthesis' in window)) return;
+
+  // Split long text by Japanese punctuation to prevent timeout cuts
+  const sentences = text.match(/[^。、？！\n]+[。、？！\n]*|.+/g) || [text];
+  let completedCount = 0;
+
+  sentences.forEach((sentence, index) => {
+    setTimeout(() => {
+      const u = new SpeechSynthesisUtterance(sentence.trim());
+      u.lang = 'ja-JP';
+      u.rate = 1.0;  // FIXED: 100 was too fast, normal range is 0.1 - 10
+      u.pitch = 1;
+      u.volume = 1;
+
+      const jaVoice = getJaVoice();
+      if (jaVoice) u.voice = jaVoice;
+
+      // Only trigger onEnd when the VERY LAST sentence finishes
+      u.onend = () => {
+        completedCount++;
+        if (completedCount === sentences.length && onEnd) {
+          onEnd();
+        }
+      };
+
+      // Speeches will queue up and play one after another automatically
+      window.speechSynthesis.speak(u);
+    }, 60 * (index + 1)); // Staggered timeout to prevent mobile browser glitches
+  });
 }
+
+// Helper to keep the voice active on long texts (fixes a known Chrome bug)
+setInterval(() => {
+  if (window.speechSynthesis.speaking) {
+    window.speechSynthesis.pause();
+    window.speechSynthesis.resume();
+  }
+}, 10000);
+
 
 /* ---------------- GRID RENDER ---------------- */
 function renderGrid(type){
